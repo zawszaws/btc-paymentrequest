@@ -42,7 +42,70 @@ function mySecret($memcache)
     return $secret;
 }
 
-function createPaymentRequest($params)
+function validate_pubkey($hex)
+{
+    $d = pack("H*", $hex);
+    if (strlen($d) < 33) {
+        return false;
+    }
+    if ($d[0] == "\x04") {
+        // Uncompressed pubkey, must be 1+64 bytes:
+        if (strlen($d) != 1+64) return false;
+        return d;
+    }
+    else if ($d[0] == "\x02" || $d[0] == "\x03") {
+        // Compressed pubkey, must be 1+32 bytes:
+        if (strlen($d) != 1+32) return false;
+        return $d;
+    }
+    return false;
+}
+
+function pubkeys_to_script($hex)
+{
+    $keys = explode(",", $hex);
+
+    $script = false;
+
+    switch(count($keys)) {
+        case 1:
+            $k = validate_pubkey($keys[0]);
+            if ($k === false) return false;
+
+            // <push-pubkey-len-bytes><pubkey> OP_CHECKSIG
+            $script = chr(strlen($k)) . $k . "\xac"; 
+            break;
+        case 2:
+            $k1 = validate_pubkey($keys[0]);
+            $k2 = validate_pubkey($keys[1]);
+            if ($k1 === false || $k2 === false) return false;
+
+            // OP_2 <k1> <k2> OP_2 OP_CHECKMULTISIG
+            $script = "\x52";
+            $script .= chr(strlen($k1)) . $k1;
+            $script .= chr(strlen($k2)) . $k2;
+            $script .= "\x52";
+            $script .= "\xae";
+            break;
+        case 3:
+            $k1 = validate_pubkey($keys[0]);
+            $k2 = validate_pubkey($keys[1]);
+            $k3 = validate_pubkey($keys[2]);
+            if ($k1 === false || $k2 === false || $k3 === false) return false;
+
+            // OP_3 <k1> <k2> <k3> OP_3 OP_CHECKMULTISIG
+            $script = "\x53";
+            $script .= chr(strlen($k1)) . $k1;
+            $script .= chr(strlen($k2)) . $k2;
+            $script .= chr(strlen($k3)) . $k3;
+            $script .= "\x53";
+            $script .= "\xae";
+            break;
+    }
+    return $script;
+}
+
+function createPaymentRequest($params, &$formErrors)
 {
     $memcache = new Memcache;
     $memcache->connect('localhost', 11211) or die ("Could not connect to memcache");
@@ -61,17 +124,35 @@ function createPaymentRequest($params)
 
     $testnet = false;
     $totalAmount = 0;
+    $nAddresses = 0;
     for ($i = 1; $i <= 3; $i++) {
         $field = "address".$i;
         if (!empty($params[$field])) {
             $output = new \payments\Output();
-            $r = address_to_script($params["address".$i]);
-            if ($r[0]) $testnet = true;
+            $r = address_to_script($params[$field]);
+            if ($r === false) {
+                $script = pubkeys_to_script($params[$field]);
+                if ($script === false) {
+                    $formErrors[$field] = "Invalid address/pubkey";
+                    continue;
+                }
+                $r = array(true, $script);
+            }
+            $testnet = $r[0];
             $output->setScript($r[1]);
 	    $output->setAmount($params["amount".$i]*1.0e8);
 	    $totalAmount += $params["amount".$i];
+            $nAddresses += 1;
 
             $details->addOutputs($output);
+
+            // Testnet only, we don't want anybody to be able to create 
+            // real-money payment requests
+            // from bitcoincore.org/gavinandresen@gmail.com:
+            if (!$testnet && $params['merchant'] != "None") {
+                $formErrors[$field] = "Testnet-only addresses, please";
+                return NULL;
+            }
         }
     }
     if ($testnet) {
@@ -136,25 +217,28 @@ function createPaymentRequest($params)
 
     $data = $paymentRequest->serialize($codec);
 
-    if (isset($params['produce_uri']))
-    {
+    if (isset($params['produce_uri'])) {
         $urlParams = array();
-
-	if ($totalAmount > 0)
-	  $urlParams['amount'] = $totalAmount;
 
 	$hash = hash('ripemd128', $data);
 	$memcache->set($hash, $data, FALSE, 60*60*24); /* cache for 24 hours */
 
 	// f.php is fetch payment request from memcache:
-	$urlParams['request'] = AbsoluteURL('')."f.php?h=".$hash;
+	$urlParams['r'] = AbsoluteURL('')."f.php?h=".$hash;
 
-        $url = AddArgsToURL("bitcoin:".$params["address1"], $urlParams);
-	
+	if ($nAddresses == 1 && $totalAmount > 0) {
+	    $urlParams['amount'] = $totalAmount;
+        }
+        if ($nAddresses == 1) {
+            $url = AddArgsToURL("bitcoin:".$params["address1"], $urlParams);
+        }
+        else {
+            $url = AddArgsToURL("bitcoin:", $urlParams);
+	}
         return MakeAnchor("CLICK TO PAY", $url);
     }
 
-    header('Content-Type: application/x-bitcoinpaymentrequest');
+    header('Content-Type: application/bitcoin-paymentrequest');
     $filename = "r".(string)time().".bitcoinpaymentrequest";
     header('Content-Disposition: inline; filename='.$filename);
     header('Content-Transfer-Encoding: binary');
@@ -175,26 +259,25 @@ ob_end_clean();
 
 $request = (get_magic_quotes_gpc() ? array_map('stripslashes', $_REQUEST) : $_REQUEST);
 
-$validationData['address1'] = array('isRequired', 'type' => 'btcaddress');
+$validationData['address1'] = array('isRequired', 'type' => 'btcdestination');
 $validationData['amount1'] = array('isRequired', 'type' => 'btcamount');
-$validationData['address2'] = array('type' => 'btcaddress');
+$validationData['address2'] = array('type' => 'btcdestination');
 $validationData['amount2'] = array('type' => 'btcamount');
-$validationData['address3'] = array('type' => 'btcaddress');
+$validationData['address3'] = array('type' => 'btcdestination');
 $validationData['amount3'] = array('type' => 'btcamount');
 
 if (isset($request['submit'])) {
     $formErrors = validateForm($request, $validationData);
 
     if (count($formErrors) == 0) {
-        $info = createPaymentRequest($request);
+        $info = createPaymentRequest($request, $formErrors);
+    }
+    if (count($formErrors) == 0) {
         $html = preg_replace('/<span class="result">[^<]*/', '<span class="result">'.$info, $html);
 
         // Normally there would be code here to process the form
         // and redirect to a thank you page...
         // ... but for this example, we just always re-display the form.
-//    $info = "No errors; got these values:".
-//      nl2br(htmlspecialchars(print_r($request, 1)));
-//    $html = preg_replace('/<body>/', "<body><p>$info</p>", $html);
     }
 }
 else {

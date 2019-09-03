@@ -26,6 +26,10 @@ if ($message === FALSE) {
     exit(0);
 }
 
+// For debugging Tor connections: replace $CLIENT_IP
+// in ACK_message with client's IP address:
+$message = str_replace('$CLIENT_IP', $_SERVER['REMOTE_ADDR'], $message);
+
 $paymentACK = new \payments\PaymentACK();
 $paymentACK->setPayment($payment);
 $paymentACK->setMemo($message);
@@ -37,7 +41,7 @@ $paymentACK->setMemo($message);
  * For this demo, we just echo back the message.
  */
 
-header('Content-Type: application/x-bitcoinpaymentACK');
+header('Content-Type: application/bitcoin-paymentack');
 $filename = "r".(string)time().".bitcoinpaymentACK";
 header('Content-Disposition: inline; filename='.$filename);
 header('Content-Transfer-Encoding: binary');

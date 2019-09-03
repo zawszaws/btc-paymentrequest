@@ -22,6 +22,10 @@
   <option>None</option></select>
  </td>
 </tr>
+<p>Note: the code for this form will only sign testnet payment requests. Gavin doesn't
+want to let just anybody create a main Bitcoin network payment request that claims to
+be from him!
+</p>
 <tr>
   <td align="right"><label for="address1">Address(es):</label></td><td><input name="address1" size="36" id="address1"/></td>
   <td align="right"><label for="amount1">Amount(s):</label></td><td><input name="amount1" size="6" id="amount1"/></td>
@@ -34,7 +38,6 @@
  <td align="right"><label for="address3">:</label></td><td><input name="address3" size="36"/></td>
  <td align="right"><label for="amount3">:</label></td><td><input name="amount3" id="amount3" size="6"/></td>
 </tr>
-
 <tr>
  <td align="right"><label for="time">Time:</label></td>
  <td>
@@ -71,10 +74,21 @@
 
 </table>
 </form>
+<p>Addresses above may be base58-encoded addresses (pay-to-pubkey-hash or pay-to-script-hash).
+Or a hex-encoded public key (pay-to-pubkey : pubkey OP_CHECKSIG).
+Or two or three hex-encoded public keys separated by commas (will generate a payment request paying
+to a 2-of-2 or 3-of-3 CHECKMULTISIG). Use the 'validateaddress' RPC call to get hex public
+keys for testing.
+</p>
+
 <p>If 'Produce bitcoin: URI' is checked, the link will appear here: <span class="result"></span><br/>
 If you change the form, you must click the Create Payment Request button to generate a new URI.
 </p>
-
+<h1>Static URIs for testing</h1>
+<p>Old-fashioned bitcoin: URI: <a href="bitcoin:mrhz5ZgSF3C1BSdyCKt3gEdhKoRL5BNfJV?amount=0.01&label=Faucet">Send to TP Faucet</a>
+</p>
+<p><a href="bitcoin:mrhz5ZgSF3C1BSdyCKt3gEdhKoRL5BNfJV?r=https%3A%2F%2Fbitcoincore.org%2F%7Egavin%2Ff.php%3Fh%3D89ea2e87e5b36a000000000000000000&amount=0.1">Invalid request URI</a>
+</p>
 </div>
 
 <script src="http://code.jquery.com/jquery.js"></script>
